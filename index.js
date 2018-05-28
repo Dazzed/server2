@@ -1,22 +1,24 @@
 const uuid = require('uuid/v4');
 const express = require('express');
 const socket = require('socket.io');
-const redisStore = require('ioredis');
-const redis = require('socket.io-redis');
-const amqp = require('amqplib/callback_api');
-const config = require('./config.js');
+const redis = require('ioredis');
 
-const queue = 'chat';
-const ampqUrl = config.ampqUrl;
-const redisUrl = config.redisUrl;
+const redisUrl = "redis://h:p774c4025e8b03e0df720e726bb1d94b346479e8e023d96f2a4c151199cf470f9@ec2-52-73-203-82.compute-1.amazonaws.com:9529";
 const port = process.env.PORT || 3002;
 
 const app = express();
-const server = app.listen(port, console.log(`SERVER-2=>listening at PORT:${port}`));
-const redisClient = new redisStore(redisUrl);
+const server = app.listen(port, console.log(`Server listening at PORT:${port}`));
+
+const redisClient = redis.createClient(redisUrl);
+const pub = redis.createClient();   //Redis Publisher
+const sub = redis.createClient();   //Redis Subscriber
+
+//Subscribe to channel name global
+sub.subscribe('global');
 
 const io = socket(server);
-io.adapter(redis(redisUrl));
+
+app.use(express.static('public'));
 
 function getFromRedis(key) {
   return new Promise((resolve, reject) => {
@@ -39,25 +41,26 @@ function getFromRedis(key) {
 
 async function setToRedis(key, data) {
   try {
-    var exist = await redisClient.exists(key)
-    if (exist) {
+    var exist = await redisClient.exists(key);
+    console.log('room key:', exist);
+    if (exist === 1) {
       redisClient.append(key, `,${JSON.stringify(data)}`);
     }
     else {
       redisClient.append(key, `${JSON.stringify(data)}`);
     }
   } catch (err) {
-    console.log('SERVER-2=>Error in (setToRedis):', err);
+    console.log('Error in (setToRedis):', err);
   }
 }
 
 app.get('/setRoom', async function (req, res) {
   try {
-    console.log('SERVER-2=>Get request for (/setRoom)');
+    console.log('Get request for (/setRoom)');
     const { query_room } = req.query;
     var rooms = [];
     rooms = JSON.parse(await getFromRedis('rooms'));
-    console.log('SERVER-2=>Rooms available:', rooms);
+    console.log('Rooms available:', rooms);
     const existingRoom = rooms.find(r => r.roomName === query_room);
     if (existingRoom) {
       return res.jsonp(existingRoom);
@@ -70,13 +73,13 @@ app.get('/setRoom', async function (req, res) {
       return res.jsonp(room);
     }
   } catch (err) {
-    console.log('SERVER-2=>Error in (/setRoom):', err);
+    console.log('Error in (/setRoom):', err);
   }
 });
 
 app.get('/getChats', async function (req, res) {
   try {
-    console.log('Requested for /getChats');
+    console.log('Client Requested for /getChats');
     const reqRoomId = req.query.roomId;
     const time = req.query.time;
     chats = JSON.parse(await getFromRedis('chats'));
@@ -89,42 +92,55 @@ app.get('/getChats', async function (req, res) {
     }
     res.jsonp(result);
   } catch (err) {
-    console.log('SERVER-2=>Error in(/getChats):', err);
+    console.log('Error in(/getChats):', err);
   }
 });
 
-amqp.connect(ampqUrl, function (err, conn) {
-  conn.createChannel(function (err, channel) {
-    channel.assertQueue(queue, { durable: true });
-    io.on('connection', socket => {
-      console.log('SERVER-2=>Client connected with Id:', socket.id);
-      socket.on('chat', data => {
-        const chat = {
-          roomId: data.roomId,
-          handle: data.handle,
-          type: data.type,
-          message: data.message,
-          time: Date.now()
-        }
-        channel.sendToQueue(queue, new Buffer(JSON.stringify(chat)), { persistent: true });
-        setToRedis('chats', chat);
-      });
+sub.on('message', function (channel, msg) {
+  // Broadcast the message to all connected clients on this server.
+  try {
+    var chat = JSON.parse(msg);
+    console.log('Emitting Chat Received by Redis Subscriber:', chat);
+    io.local.emit(`${chat.roomId}__chat`, chat);
+  } catch (err) {
+    console.log('error on emiting:', err);
+  }
+});
 
-      socket.on('chat_sync', data => {
-        const chat = {
-          roomId: data.roomId,
-          handle: data.handle,
-          type: data.type,
-          message: data.message,
-          time: Date.now()
-        }
-        channel.sendToQueue(queue, new Buffer(JSON.stringify(chat)), { persistent: true });
-        setToRedis('chats', chat);
-      });
-
-      socket.on('typing', data => {
-        socket.broadcast.emit(`${data.roomId}__typing`, data);
-      });
-    });
+io.on('connection', socket => {
+  console.log('Client connected with Id:', socket.id);
+  io.emit(`61b923e0-b3de-4afe-913a-2f1333671883__chat`, "hello");
+  socket.on('chat', data => {
+    const chat = {
+      roomId: data.roomId,
+      handle: data.handle,
+      type: data.type,
+      message: data.message,
+      time: Date.now()
+    }
+    pub.publish('global', JSON.stringify(chat));
+    setToRedis('chats', chat);
   });
+
+  socket.on('chat_sync', data => {
+    const chat = {
+      roomId: data.roomId,
+      handle: data.handle,
+      type: data.type,
+      message: data.message,
+      time: Date.now()
+    }
+    pub.publish('global', JSON.stringify(chat));
+    setToRedis('chats', chat);
+  });
+
+  socket.on('typing', data => {
+    // pub.publish('global', chat);
+    socket.broadcast.emit(`${data.roomId}__typing`, data);
+  });
+
+  socket.on('error', error => {
+    console.log('Error Event:', error);
+  });
+
 });
