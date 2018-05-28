@@ -3,15 +3,15 @@ const express = require('express');
 const socket = require('socket.io');
 const redis = require('ioredis');
 
-const redisUrl = "redis://h:p774c4025e8b03e0df720e726bb1d94b346479e8e023d96f2a4c151199cf470f9@ec2-52-73-203-82.compute-1.amazonaws.com:9529";
+const redisUrl = 'redis://h:p774c4025e8b03e0df720e726bb1d94b346479e8e023d96f2a4c151199cf470f9@ec2-52-73-203-82.compute-1.amazonaws.com:9529';
 const port = process.env.PORT || 3002;
 
 const app = express();
 const server = app.listen(port, console.log(`Server listening at PORT:${port}`));
 
-const redisClient = redis.createClient(redisUrl);
-const pub = redis.createClient();   //Redis Publisher
-const sub = redis.createClient();   //Redis Subscriber
+const redisClient = new redis(redisUrl);
+const pub = new redis(redisUrl);   //Redis Publisher
+const sub = new redis(redisUrl);   //Redis Subscriber
 
 //Subscribe to channel name global
 sub.subscribe('global');
@@ -103,13 +103,12 @@ sub.on('message', function (channel, msg) {
     console.log('Emitting Chat Received by Redis Subscriber:', chat);
     io.local.emit(`${chat.roomId}__chat`, chat);
   } catch (err) {
-    console.log('error on emiting:', err);
+    console.log('Error in emiting:', err);
   }
 });
 
 io.on('connection', socket => {
   console.log('Client connected with Id:', socket.id);
-  io.emit(`61b923e0-b3de-4afe-913a-2f1333671883__chat`, "hello");
   socket.on('chat', data => {
     const chat = {
       roomId: data.roomId,
@@ -135,12 +134,6 @@ io.on('connection', socket => {
   });
 
   socket.on('typing', data => {
-    // pub.publish('global', chat);
     socket.broadcast.emit(`${data.roomId}__typing`, data);
   });
-
-  socket.on('error', error => {
-    console.log('Error Event:', error);
-  });
-
 });
