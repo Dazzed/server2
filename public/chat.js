@@ -1,5 +1,6 @@
 // var serverURL = '';
 var socket = io();
+socket.heartbeatTimeout = 5000
 
 var roomId = null;
 var timeStamp = 0;
