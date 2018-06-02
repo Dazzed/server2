@@ -11,8 +11,6 @@ var message = document.getElementById('message'),
   feedback = document.getElementById('feedback');
 
 $(document).ready(async function () {
-  // serverURL = await $.get(`/getMyServer`);
-  // socket = io.connect(serverURL);
   socket.on('connect', function () {
     $('#connection-status').text("Status: Connected");
     console.log('Socket Connected..!');
@@ -105,6 +103,7 @@ function putChats(message) {
         socket.emit('chat', mess);
       });
       message_queue = [];
+      output.innerHTML += `<p><strong>${handle.value}</strong> : &nbsp${message.value} <i></i></p>`;
     }
     else {
       output.innerHTML += `<p><strong>${handle.value}</strong> : &nbsp${message.value} <i>&#215;</i></p>`;
@@ -160,19 +159,23 @@ function inititateListeneres(roomId) {
   });
 
   socket.on(`${roomId}__chat`, chat => {
-    if (chat.type == 'text') {
-      console.log('got new message', chat)
-      feedback.innerHTML = '';
-      const { handle, message } = chat;
-      output.innerHTML += `<p><strong>${handle}</strong> : &nbsp${message}</p>`;
-    }
-    else if (chat.type == 'image') {
-      let img = new Image();
-      console.log('got new image', chat)
-      feedback.innerHTML = '';
-      const { handle, message } = chat;
-      img.src = message;
-      $('#output').append(img);
+    if (chat.handle == handle.value) {
+      console.log('Chat echos');
+    } else {
+      if (chat.type == 'text') {
+        console.log('got new message', chat);
+        feedback.innerHTML = '';
+        const { handle, message } = chat;
+        output.innerHTML += `<p><strong>${handle}</strong> : &nbsp${message}</p>`;
+      }
+      else if (chat.type == 'image') {
+        let img = new Image();
+        console.log('got new image', chat)
+        feedback.innerHTML = '';
+        const { handle, message } = chat;
+        img.src = message;
+        $('#output').append(img);
+      }
     }
     timeStamp = chat.time;
     feedback.value = '';
@@ -180,7 +183,7 @@ function inititateListeneres(roomId) {
 
   socket.on(`${roomId}__typing`, chat => {
     feedback.innerHTML = `<p><em>${chat.handle} is typing a message...</em></p>`;
-    console.log('after inner set ->', feedback)
+    console.log('after inner set ->', feedback);
   });
 
   socket.on('reconnect', async function () {
@@ -215,6 +218,8 @@ $(function () {
     var reader = new FileReader();
     reader.readAsDataURL(file);
     reader.onload = function () {
+      let img = new Image();
+      img.src = reader.result;
       message_queue.push({
         roomId: roomId,
         handle: handle.value,
@@ -226,10 +231,9 @@ $(function () {
           socket.emit('chat', mess);
         });
         message_queue = [];
+        $('#output').append(img);
       }
       else {
-        let img = new Image();
-        img.src = reader.result;
         $('#output').append(img);
       }
     };
